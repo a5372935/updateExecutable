@@ -1,0 +1,131 @@
+#!/bin/bash
+
+CONF_FILE="$0.conf"
+DEVNAME=""
+BAUDRATE=""
+
+RED='\033[33;31m'
+GREEN='\033[33;32m'
+YELLOW='\033[33;33m'
+BLUE='\033[33;34m'
+NC='\033[0m' # No Color
+
+OP_WRITE_ONLY=0
+
+#@brief send command to specified target
+#@$1 : control(read/write/reply)
+#@$2 : command.
+#@$3 : value
+#@$4 : target(device...so on)
+send_command()
+{
+    for word in $@; do
+        CCV="$CCV""$word "
+    done
+    # echo "CCV=[$CCV]"
+
+    #calculate command length.
+    R_TMP_CMD="\$00 ""$CCV"
+
+    R_CMD_LEN=$((${#R_TMP_CMD}+1))
+    R_SEND_CMD="\$$R_CMD_LEN $CCV"
+
+    #send command.
+    echo "$R_SEND_CMD" > $DEVNAME
+    
+    echo "send:[$R_SEND_CMD]"
+
+    if [ "1" != "$OP_WRITE_ONLY" ]; then
+        read -t 1 line <&3
+        if [ $? -eq 0 ]; then
+            # echo $line | hexdump
+            echo "recv:[$line]"
+        fi
+    fi
+}
+
+send_pass()
+{
+    for word in $@; do
+        str_pass_tmp="$str_pass_tmp""$word "
+    done
+
+    str_pass="\$00 ""$str_pass_tmp"
+    str_len=$((${#str_pass}+1))
+    str_pass="\$$str_len $str_pass_tmp"
+    echo "bypass:[$str_pass]"
+
+    str_send_tmp="bwrite \\""$str_pass\\\\\n \n"
+    str_send="\$00 ""$str_send_tmp"
+    str_len=$((${#str_send} -3))
+    str_send="\$${str_len} $str_send_tmp"
+    echo -ne "str_send=[$str_send]"
+
+    #send command.
+    echo -ne $str_send > $DEVNAME
+    
+    if [ "1" != "$OP_WRITE_ONLY" ]; then
+        read -t 1 line <&3
+        if [ $? -eq 0 ]; then
+            # echo $line | hexdump
+            echo "recv:[$line]"
+        fi
+    fi
+}
+
+show_usage()
+{
+    echo "$0 --[dev,baud,ro,rw] MCU_STR"
+    # echo "    --ro   read reply from MCU only"
+    # echo "    --rw   send cmd & read reply from MCU"
+    echo "set parm & save to conf. ex:"
+    echo "    $0 --dev=/dev/ttyAMA2 --baud=57600"
+    echo "Read ver: $0 read ver"
+    echo "hdd power: $0 write hdd1pwr 0"
+}
+
+if [ $# -eq 1 -a "$1" = "--help" ]; then
+    show_usage
+    return 0
+fi
+
+CMD_STRING=""
+for i in "$@"
+do
+    case $i in
+        --dev=*)
+            _DEVNAME=${i#--dev=}
+            ;;
+        --baud=*)
+            _BAUDRATE=${i#--baud=}
+            ;;
+        --wo)
+            OP_WRITE_ONLY=1
+            ;;
+        *)
+            #echo "INVALID param $i"
+            if [ "$CMD_STRING" == "" ]; then
+                CMD_STRING="$i"
+            else
+                CMD_STRING="$CMD_STRING ""$i"
+            fi
+
+            ;;
+   esac
+done
+
+
+DEVNAME="/dev/ttyUSB0"
+BAUDRATE=115200
+exec 3< "$DEVNAME"
+
+stty -F $DEVNAME raw
+stty -F $DEVNAME -echo -echoe -echok
+stty -F $DEVNAME $BAUDRATE
+
+if [ "$CMD_STRING" == "" ]; then
+    show_usage
+else
+    send_command $CMD_STRING
+fi
+
